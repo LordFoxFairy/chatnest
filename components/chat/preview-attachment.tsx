@@ -21,7 +21,7 @@ export const PreviewAttachment = ({
     >
       {contentType?.startsWith("image") ? (
         <Image
-          alt={name ?? "attachment"}
+          alt={name ?? "图片附件"}
           className="size-full object-cover"
           height={96}
           src={url}
@@ -29,7 +29,7 @@ export const PreviewAttachment = ({
         />
       ) : (
         <div className="flex size-full items-center justify-center text-muted-foreground text-xs">
-          File
+          图片
         </div>
       )}
 
@@ -44,7 +44,8 @@ export const PreviewAttachment = ({
 
       {onRemove && !isUploading && (
         <button
-          className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur-sm transition-opacity hover:bg-black/80 group-hover:opacity-100"
+          aria-label={`移除图片 ${name ?? ""}`}
+          className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-opacity hover:bg-black/80 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100"
           onClick={onRemove}
           type="button"
         >

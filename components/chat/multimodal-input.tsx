@@ -2,16 +2,15 @@
 
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
-import equal from "fast-deep-equal";
 import {
   ArrowUpIcon,
   BrainIcon,
   EyeIcon,
+  Globe,
   LockIcon,
   WrenchIcon,
+  X,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import {
   type ChangeEvent,
   type Dispatch,
@@ -25,7 +24,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
-import { useLocalStorage, useWindowSize } from "usehooks-ts";
+import { useWindowSize } from "usehooks-ts";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -37,6 +36,9 @@ import {
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
+import { useActiveChat } from "@/hooks/use-active-chat";
+import { useAgentInfo } from "@/hooks/use-agent-info";
+import { MAX_MESSAGE_CHARACTERS } from "@/lib/agent/input-limits";
 import {
   type ChatModel,
   chatModels,
@@ -44,7 +46,7 @@ import {
   type ModelCapabilities,
 } from "@/lib/ai/models";
 import type { Attachment, ChatMessage } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, fetcher } from "@/lib/utils";
 import {
   PromptInput,
   PromptInputFooter,
@@ -54,14 +56,9 @@ import {
 } from "../ai-elements/prompt-input";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { PaperclipIcon, StopIcon } from "./icons";
+import { ComposerMenu } from "./composer-menu";
+import { StopIcon } from "./icons";
 import { PreviewAttachment } from "./preview-attachment";
-import {
-  type SlashCommand,
-  SlashCommandMenu,
-  slashCommands,
-} from "./slash-commands";
-import { SuggestedActions } from "./suggested-actions";
 import type { VisibilityType } from "./visibility-selector";
 
 function setCookie(name: string, value: string) {
@@ -78,16 +75,16 @@ function PureMultimodalInput({
   stop,
   attachments,
   setAttachments,
-  messages,
+  messages: _messages,
   setMessages,
   sendMessage,
   className,
-  selectedVisibilityType,
+  selectedVisibilityType: _selectedVisibilityType,
   selectedModelId,
-  onModelChange,
+  onModelChange: _onModelChange,
   editingMessage,
   onCancelEdit,
-  isLoading,
+  isLoading: _isLoading,
 }: {
   chatId: string;
   input: string;
@@ -109,8 +106,12 @@ function PureMultimodalInput({
   onCancelEdit?: () => void;
   isLoading?: boolean;
 }) {
-  const router = useRouter();
-  const { setTheme, resolvedTheme } = useTheme();
+  const { data: agentInfo } = useAgentInfo();
+  const { searchMode, setSearchMode } = useActiveChat();
+  const cancelSearch = useCallback(
+    () => setSearchMode("auto"),
+    [setSearchMode]
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
   const hasAutoFocused = useRef(false);
@@ -124,109 +125,37 @@ function PureMultimodalInput({
     }
   }, [width]);
 
-  const [localStorageInput, setLocalStorageInput] = useLocalStorage(
-    "input",
-    ""
-  );
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      const domValue = textareaRef.current.value;
-      const finalValue = domValue || localStorageInput || "";
-      setInput(finalValue);
-    }
-  }, [localStorageInput, setInput]);
-
-  useEffect(() => {
-    setLocalStorageInput(input);
-  }, [input, setLocalStorageInput]);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const liveChatId = useRef(chatId);
+  const previousUploadChatId = useRef(chatId);
+  liveChatId.current = chatId;
   const [uploadQueue, setUploadQueue] = useState<string[]>([]);
-  const [slashOpen, setSlashOpen] = useState(false);
-  const [slashQuery, setSlashQuery] = useState("");
-  const [slashIndex, setSlashIndex] = useState(0);
-
+  useEffect(() => {
+    if (previousUploadChatId.current !== chatId) {
+      previousUploadChatId.current = chatId;
+      setUploadQueue([]);
+    }
+  }, [chatId]);
   const handleInput = useCallback(
-    (event: ChangeEvent<HTMLTextAreaElement>) => {
-      const val = event.target.value;
-      setInput(val);
-
-      if (val.startsWith("/") && !val.includes(" ")) {
-        setSlashOpen(true);
-        setSlashQuery(val.slice(1));
-        setSlashIndex(0);
-      } else {
-        setSlashOpen(false);
-      }
-    },
+    (event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value),
     [setInput]
   );
 
-  const handleSlashSelect = useCallback(
-    (cmd: SlashCommand) => {
-      setSlashOpen(false);
-      setInput("");
-      switch (cmd.action) {
-        case "new":
-          router.push("/");
-          break;
-        case "clear":
-          setMessages(() => []);
-          break;
-        case "rename":
-          toast("Rename is available from the sidebar chat menu.");
-          break;
-        case "model": {
-          const modelBtn = document.querySelector<HTMLButtonElement>(
-            "[data-testid='model-selector']"
-          );
-          modelBtn?.click();
-          break;
-        }
-        case "theme":
-          setTheme(resolvedTheme === "dark" ? "light" : "dark");
-          break;
-        case "delete":
-          toast("Delete this chat?", {
-            action: {
-              label: "Delete",
-              onClick: () => {
-                fetch(
-                  `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat?id=${chatId}`,
-                  { method: "DELETE" }
-                );
-                router.push("/");
-                toast.success("Chat deleted");
-              },
-            },
-          });
-          break;
-        case "purge":
-          toast("Delete all chats?", {
-            action: {
-              label: "Delete all",
-              onClick: () => {
-                fetch(
-                  `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/history`,
-                  {
-                    method: "DELETE",
-                  }
-                );
-                router.push("/");
-                toast.success("All chats deleted");
-              },
-            },
-          });
-          break;
-        default:
-          break;
-      }
-    },
-    [chatId, resolvedTheme, router, setInput, setMessages, setTheme]
-  );
-
   const submitForm = useCallback(() => {
+    if (attachments.length > 15) {
+      toast.error("一条消息最多添加 15 张图片，请移除多余图片。");
+      return;
+    }
+    if (input.length > MAX_MESSAGE_CHARACTERS) {
+      toast.error(
+        `单条消息最多 ${MAX_MESSAGE_CHARACTERS.toLocaleString()} 字符，请拆分内容后发送。`
+      );
+      return;
+    }
+    if (editingMessage) {
+      (sendMessage as () => Promise<void>)();
+      return;
+    }
     window.history.pushState(
       {},
       "",
@@ -236,21 +165,17 @@ function PureMultimodalInput({
     sendMessage({
       parts: [
         ...attachments.map((attachment) => ({
+          filename: attachment.name,
           mediaType: attachment.contentType,
-          name: attachment.name,
           type: "file" as const,
           url: attachment.url,
         })),
-        {
-          text: input,
-          type: "text",
-        },
+        ...(input.trim() ? [{ text: input, type: "text" as const }] : []),
       ],
       role: "user",
     });
 
     setAttachments([]);
-    setLocalStorageInput("");
     setInput("");
 
     if (width && width > 768) {
@@ -258,54 +183,77 @@ function PureMultimodalInput({
     }
   }, [
     input,
+    editingMessage,
     setInput,
     attachments,
     sendMessage,
     setAttachments,
-    setLocalStorageInput,
     width,
     chatId,
   ]);
 
-  const uploadFile = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/files/upload`,
-        {
-          body: formData,
-          method: "POST",
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        const { url, pathname, contentType } = data;
-
-        return {
-          contentType,
-          name: pathname,
-          url,
-        };
+  const uploadFile = useCallback(
+    async (file: File) => {
+      if (!agentInfo?.uploadsConfigured) {
+        toast.error("图片上传尚未配置，请在设置中查看存储连接说明。");
+        return;
       }
-      const { error } = await response.json();
-      toast.error(error);
-    } catch {
-      toast.error("Failed to upload file, please try again!");
-    }
-  }, []);
+      if (
+        !["image/jpeg", "image/png"].includes(file.type) ||
+        file.size > 5 * 1024 * 1024
+      ) {
+        toast.error("仅支持不超过 5 MB 的 JPEG 或 PNG 图片。");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/files/upload`,
+          {
+            body: formData,
+            method: "POST",
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const { url, pathname, contentType } = data;
+
+          return {
+            contentType,
+            name: file.name || pathname,
+            url,
+          };
+        }
+        const { error } = await response.json();
+        toast.error(error);
+      } catch {
+        toast.error("图片上传失败，请检查连接后重试。");
+      }
+    },
+    [agentInfo?.uploadsConfigured]
+  );
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
+      const uploadChatId = chatId;
       const files = Array.from(event.target.files || []);
+      event.target.value = "";
+      if (attachments.length + files.length > 15) {
+        toast.error("一条消息最多添加 15 张图片。");
+        return;
+      }
 
       setUploadQueue(files.map((file) => file.name));
 
       try {
         const uploadPromises = files.map((file) => uploadFile(file));
         const uploadedAttachments = await Promise.all(uploadPromises);
+        if (liveChatId.current !== uploadChatId) {
+          return;
+        }
         const successfullyUploadedAttachments = uploadedAttachments.filter(
           (attachment) => attachment !== undefined
         );
@@ -315,16 +263,19 @@ function PureMultimodalInput({
           ...successfullyUploadedAttachments,
         ]);
       } catch {
-        toast.error("Failed to upload files");
+        toast.error("图片上传失败，请稍后重试。");
       } finally {
-        setUploadQueue([]);
+        if (liveChatId.current === uploadChatId) {
+          setUploadQueue([]);
+        }
       }
     },
-    [setAttachments, uploadFile]
+    [chatId, attachments.length, setAttachments, uploadFile]
   );
 
   const handlePaste = useCallback(
     async (event: ClipboardEvent) => {
+      const uploadChatId = chatId;
       const items = event.clipboardData?.items;
       if (!items) {
         return;
@@ -339,8 +290,20 @@ function PureMultimodalInput({
       }
 
       event.preventDefault();
+      if (uploadQueue.length) {
+        toast.error("图片仍在上传，请稍候。");
+        return;
+      }
+      if (status !== "ready" && status !== "error") {
+        toast.error("请等待当前回复完成后再添加图片。");
+        return;
+      }
+      if (attachments.length + imageItems.length > 15) {
+        toast.error("一条消息最多添加 15 张图片。");
+        return;
+      }
 
-      setUploadQueue((prev) => [...prev, "Pasted image"]);
+      setUploadQueue((prev) => [...prev, "粘贴的图片"]);
 
       try {
         const uploadPromises = imageItems
@@ -349,6 +312,9 @@ function PureMultimodalInput({
           .map((file) => uploadFile(file));
 
         const uploadedAttachments = await Promise.all(uploadPromises);
+        if (liveChatId.current !== uploadChatId) {
+          return;
+        }
         const successfullyUploadedAttachments = uploadedAttachments.filter(
           (attachment) =>
             attachment !== undefined &&
@@ -361,12 +327,21 @@ function PureMultimodalInput({
           ...(successfullyUploadedAttachments as Attachment[]),
         ]);
       } catch {
-        toast.error("Failed to upload pasted image(s)");
+        toast.error("粘贴的图片上传失败，请稍后重试。");
       } finally {
-        setUploadQueue([]);
+        if (liveChatId.current === uploadChatId) {
+          setUploadQueue([]);
+        }
       }
     },
-    [setAttachments, uploadFile]
+    [
+      chatId,
+      uploadQueue.length,
+      attachments.length,
+      status,
+      setAttachments,
+      uploadFile,
+    ]
   );
 
   useEffect(() => {
@@ -387,101 +362,44 @@ function PureMultimodalInput({
     [onCancelEdit]
   );
 
-  const handleSlashClose = useCallback(() => {
-    setSlashOpen(false);
-  }, []);
-
   const handlePromptSubmit = useCallback(() => {
-    if (input.startsWith("/")) {
-      const query = input.slice(1).trim();
-      const cmd = slashCommands.find((c) => c.name === query);
-      if (cmd) {
-        handleSlashSelect(cmd);
-      }
-      return;
-    }
     if (!input.trim() && attachments.length === 0) {
       return;
     }
     if (status === "ready" || status === "error") {
       submitForm();
     } else {
-      toast.error("Please wait for the model to finish its response!");
+      toast.error("请等待当前回复完成，或点击停止。");
     }
-  }, [attachments.length, handleSlashSelect, input, status, submitForm]);
+  }, [attachments.length, input, status, submitForm]);
 
   const handleTextareaKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (slashOpen) {
-        const filtered = slashCommands.filter((cmd) =>
-          cmd.name.startsWith(slashQuery.toLowerCase())
-        );
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setSlashIndex((i) => Math.min(i + 1, filtered.length - 1));
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setSlashIndex((i) => Math.max(i - 1, 0));
-          return;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          if (filtered[slashIndex]) {
-            handleSlashSelect(filtered[slashIndex]);
-          }
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setSlashOpen(false);
-          return;
-        }
-      }
       if (e.key === "Escape" && editingMessage && onCancelEdit) {
         e.preventDefault();
         onCancelEdit();
       }
     },
-    [
-      editingMessage,
-      handleSlashSelect,
-      onCancelEdit,
-      slashIndex,
-      slashOpen,
-      slashQuery,
-    ]
+    [editingMessage, onCancelEdit]
   );
 
   return (
     <div className={cn("relative flex w-full flex-col gap-4", className)}>
       {editingMessage && onCancelEdit ? (
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <span>Editing message</span>
+          <span>正在修改消息 · 发送后会重新生成回复</span>
           <button
             className="rounded px-1.5 py-0.5 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
             onMouseDown={handleCancelEditMouseDown}
             type="button"
           >
-            Cancel
+            取消
           </button>
         </div>
       ) : null}
 
-      {!editingMessage &&
-        !isLoading &&
-        messages.length === 0 &&
-        attachments.length === 0 &&
-        uploadQueue.length === 0 && (
-          <SuggestedActions
-            chatId={chatId}
-            selectedVisibilityType={selectedVisibilityType}
-            sendMessage={sendMessage}
-          />
-        )}
-
       <input
+        accept="image/jpeg,image/png"
         className="pointer-events-none fixed -top-4 -left-4 size-0.5 opacity-0"
         multiple
         onChange={handleFileChange}
@@ -490,19 +408,8 @@ function PureMultimodalInput({
         type="file"
       />
 
-      <div className="relative">
-        {slashOpen ? (
-          <SlashCommandMenu
-            onClose={handleSlashClose}
-            onSelect={handleSlashSelect}
-            query={slashQuery}
-            selectedIndex={slashIndex}
-          />
-        ) : null}
-      </div>
-
       <PromptInput
-        className="[&>div]:rounded-2xl [&>div]:border [&>div]:border-border/30 [&>div]:bg-card/70 [&>div]:shadow-[var(--shadow-composer)] [&>div]:transition-shadow [&>div]:duration-300 [&>div]:focus-within:shadow-[var(--shadow-composer-focus)]"
+        className="[&>div]:rounded-[24px] [&>div]:border [&>div]:border-border [&>div]:bg-card [&>div]:shadow-[var(--shadow-composer)] [&>div]:transition-shadow [&>div]:duration-200 [&>div]:ring-0! [&>div]:focus-within:border-foreground/25! [&>div]:focus-within:shadow-[var(--shadow-composer-focus)]"
         onSubmit={handlePromptSubmit}
       >
         {(attachments.length > 0 || uploadQueue.length > 0) && (
@@ -533,41 +440,61 @@ function PureMultimodalInput({
           </div>
         )}
         <PromptInputTextarea
-          className="min-h-24 text-[13px] leading-relaxed px-4 pt-3.5 pb-1.5 placeholder:text-muted-foreground/35"
+          aria-label="消息输入框"
+          className="min-h-[56px] text-[16px] leading-relaxed px-5 pt-4 pb-2 placeholder:text-muted-foreground"
           data-testid="multimodal-input"
           onChange={handleInput}
           onKeyDown={handleTextareaKeyDown}
-          placeholder={
-            editingMessage ? "Edit your message..." : "Ask anything..."
-          }
+          placeholder={editingMessage ? "修改消息…" : "询问任何问题"}
           ref={textareaRef}
           value={input}
         />
         <PromptInputFooter className="px-3 pb-3">
           <PromptInputTools>
-            <AttachmentsButton
+            <ComposerMenu
+              busy={
+                status === "submitted" ||
+                status === "streaming" ||
+                uploadQueue.length > 0
+              }
               fileInputRef={fileInputRef}
               selectedModelId={selectedModelId}
-              status={status}
             />
-            <ModelSelectorCompact
-              onModelChange={onModelChange}
-              selectedModelId={selectedModelId}
-            />
+            {searchMode === "web" && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-xs"
+                data-testid="search-mode-chip"
+              >
+                <Globe className="size-3.5" />
+                联网搜索
+                <button
+                  aria-label="取消联网搜索"
+                  className="rounded-full p-0.5 hover:bg-background"
+                  onClick={cancelSearch}
+                  type="button"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
           </PromptInputTools>
 
-          {status === "submitted" ? (
+          {status === "submitted" || status === "streaming" ? (
             <StopButton setMessages={setMessages} stop={stop} />
           ) : (
             <PromptInputSubmit
+              aria-label="发送消息"
               className={cn(
-                "h-7 w-7 rounded-xl transition-all duration-200",
-                input.trim()
+                "h-9 w-9 rounded-full transition-all duration-200",
+                input.trim() || attachments.length > 0
                   ? "bg-foreground text-background hover:opacity-85 active:scale-95"
                   : "bg-muted text-muted-foreground/25 cursor-not-allowed"
               )}
               data-testid="send-button"
-              disabled={!input.trim() || uploadQueue.length > 0}
+              disabled={
+                (!input.trim() && attachments.length === 0) ||
+                uploadQueue.length > 0
+              }
               status={status}
               variant="secondary"
             >
@@ -576,41 +503,26 @@ function PureMultimodalInput({
           )}
         </PromptInputFooter>
       </PromptInput>
+      {input.length >= MAX_MESSAGE_CHARACTERS * 0.8 && (
+        <p
+          aria-live="polite"
+          className={cn(
+            "px-2 text-right text-xs",
+            input.length > MAX_MESSAGE_CHARACTERS
+              ? "text-destructive"
+              : "text-muted-foreground"
+          )}
+        >
+          {input.length.toLocaleString()} /{" "}
+          {MAX_MESSAGE_CHARACTERS.toLocaleString()} 字符
+          {input.length > MAX_MESSAGE_CHARACTERS ? " · 请拆分后发送" : ""}
+        </p>
+      )}
     </div>
   );
 }
 
-export const MultimodalInput = memo(
-  PureMultimodalInput,
-  (prevProps, nextProps) => {
-    if (prevProps.input !== nextProps.input) {
-      return false;
-    }
-    if (prevProps.status !== nextProps.status) {
-      return false;
-    }
-    if (!equal(prevProps.attachments, nextProps.attachments)) {
-      return false;
-    }
-    if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType) {
-      return false;
-    }
-    if (prevProps.selectedModelId !== nextProps.selectedModelId) {
-      return false;
-    }
-    if (prevProps.editingMessage !== nextProps.editingMessage) {
-      return false;
-    }
-    if (prevProps.isLoading !== nextProps.isLoading) {
-      return false;
-    }
-    if (prevProps.messages.length !== nextProps.messages.length) {
-      return false;
-    }
-
-    return true;
-  }
-);
+export const MultimodalInput = PureMultimodalInput;
 
 function PureAttachmentPreviewItem({
   attachment,
@@ -635,52 +547,6 @@ function PureAttachmentPreviewItem({
 
 const AttachmentPreviewItem = memo(PureAttachmentPreviewItem);
 
-function PureAttachmentsButton({
-  fileInputRef,
-  status,
-  selectedModelId,
-}: {
-  fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
-  status: UseChatHelpers<ChatMessage>["status"];
-  selectedModelId: string;
-}) {
-  const { data: modelsResponse } = useSWR(
-    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/models`,
-    (url: string) => fetch(url).then((r) => r.json()),
-    { dedupingInterval: 3_600_000, revalidateOnFocus: false }
-  );
-
-  const caps: Record<string, ModelCapabilities> | undefined =
-    modelsResponse?.capabilities ?? modelsResponse;
-  const hasVision = caps?.[selectedModelId]?.vision ?? false;
-  const handleClick = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      fileInputRef.current?.click();
-    },
-    [fileInputRef]
-  );
-
-  return (
-    <Button
-      className={cn(
-        "h-7 w-7 rounded-lg border border-border/40 p-1 transition-colors",
-        hasVision
-          ? "text-foreground hover:border-border hover:text-foreground"
-          : "text-muted-foreground/30 cursor-not-allowed"
-      )}
-      data-testid="attachments-button"
-      disabled={status !== "ready" || !hasVision}
-      onClick={handleClick}
-      variant="ghost"
-    >
-      <PaperclipIcon size={14} style={{ height: 14, width: 14 }} />
-    </Button>
-  );
-}
-
-const AttachmentsButton = memo(PureAttachmentsButton);
-
 function ModelSelectorOption({
   capabilities,
   curated,
@@ -696,7 +562,7 @@ function ModelSelectorOption({
   selectedModelId: string;
   setOpen: Dispatch<SetStateAction<boolean>>;
 }) {
-  const [logoProvider] = model.id.split("/");
+  const logoProvider = model.provider;
   const maybeWithTooltip = (icon: ReactNode, label: string) => {
     if (!curated) {
       return icon;
@@ -751,16 +617,10 @@ function ModelSelectorOption({
             )
           : null}
         {capabilities?.[model.id]?.vision
-          ? maybeWithTooltip(
-              <EyeIcon className="size-3.5" />,
-              "Supports vision"
-            )
+          ? maybeWithTooltip(<EyeIcon className="size-3.5" />, "支持图片")
           : null}
         {capabilities?.[model.id]?.reasoning
-          ? maybeWithTooltip(
-              <BrainIcon className="size-3.5" />,
-              "Supports reasoning"
-            )
+          ? maybeWithTooltip(<BrainIcon className="size-3.5" />, "支持推理")
           : null}
         {!curated && <LockIcon className="size-3 text-muted-foreground/50" />}
       </div>
@@ -777,7 +637,7 @@ function ModelSelectorOption({
         <div className="w-full cursor-not-allowed">{option}</div>
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>
-        This model is not available in the demo.
+        此模型尚未在服务端开放。
       </TooltipContent>
     </Tooltip>
   );
@@ -793,7 +653,7 @@ function PureModelSelectorCompact({
   const [open, setOpen] = useState(false);
   const { data: modelsData } = useSWR(
     `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/models`,
-    (url: string) => fetch(url).then((r) => r.json()),
+    fetcher,
     { dedupingInterval: 3_600_000, revalidateOnFocus: false }
   );
 
@@ -806,13 +666,14 @@ function PureModelSelectorCompact({
     activeModels.find((m: ChatModel) => m.id === selectedModelId) ??
     activeModels.find((m: ChatModel) => m.id === DEFAULT_CHAT_MODEL) ??
     activeModels[0];
-  const [provider] = selectedModel.id.split("/");
+  const { provider } = selectedModel;
 
   return (
     <ModelSelector onOpenChange={setOpen} open={open}>
       <ModelSelectorTrigger asChild>
         <Button
-          className="h-7 max-w-[200px] justify-between gap-1.5 rounded-lg px-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="选择模型"
+          className="h-10 max-w-[240px] justify-between gap-2 rounded-xl px-2 text-[17px] font-medium text-foreground transition-colors hover:bg-secondary"
           data-testid="model-selector"
           variant="ghost"
         >
@@ -821,16 +682,20 @@ function PureModelSelectorCompact({
         </Button>
       </ModelSelectorTrigger>
       <ModelSelectorContent commandDefaultValue={selectedModel.id}>
-        <ModelSelectorInput placeholder="Search models..." />
+        <ModelSelectorInput placeholder="搜索模型…" />
         <ModelSelectorList>
           {(() => {
-            const curatedIds = new Set(chatModels.map((m) => m.id));
-            const allModels = dynamicModels
-              ? [
-                  ...chatModels,
-                  ...dynamicModels.filter((m) => !curatedIds.has(m.id)),
-                ]
-              : chatModels;
+            const curatedIds = new Set<string>(
+              modelsData?.selectableModelIds ?? chatModels.map((m) => m.id)
+            );
+            const allModels = modelsData?.selectableModelIds
+              ? activeModels
+              : dynamicModels
+                ? [
+                    ...chatModels,
+                    ...dynamicModels.filter((m) => !curatedIds.has(m.id)),
+                  ]
+                : chatModels;
 
             const grouped: Record<
               string,
@@ -885,7 +750,7 @@ function PureModelSelectorCompact({
               <ModelSelectorGroup
                 heading={
                   key === "_available"
-                    ? "Available"
+                    ? "可选模型"
                     : (providerNames[key] ?? key)
                 }
                 key={key}
@@ -910,7 +775,7 @@ function PureModelSelectorCompact({
   );
 }
 
-const ModelSelectorCompact = memo(PureModelSelectorCompact);
+export const ModelSelectorCompact = memo(PureModelSelectorCompact);
 
 function PureStopButton({
   stop,
@@ -930,9 +795,11 @@ function PureStopButton({
 
   return (
     <Button
-      className="h-7 w-7 rounded-xl bg-foreground p-1 text-background transition-all duration-200 hover:opacity-85 active:scale-95 disabled:bg-muted disabled:text-muted-foreground/25 disabled:cursor-not-allowed"
+      aria-label="停止生成"
+      className="h-9 w-9 rounded-full bg-foreground p-1 text-background transition-all duration-200 hover:opacity-85 active:scale-95 disabled:bg-muted disabled:text-muted-foreground/25 disabled:cursor-not-allowed"
       data-testid="stop-button"
       onClick={handleClick}
+      type="button"
     >
       <StopIcon size={14} />
     </Button>

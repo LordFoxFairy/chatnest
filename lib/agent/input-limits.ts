@@ -1,0 +1,2 @@
+export const MAX_MESSAGE_CHARACTERS = 32_000;
+export const MAX_MESSAGE_PARTS = 16;

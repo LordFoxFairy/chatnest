@@ -6,6 +6,7 @@ import type { ChatMessage } from "@/lib/types";
 import { cn, sanitizeText } from "@/lib/utils";
 import { MessageContent, MessageResponse } from "../ai-elements/message";
 import { Shimmer } from "../ai-elements/shimmer";
+import type { ToolPart } from "../ai-elements/tool";
 import {
   Tool,
   ToolContent,
@@ -20,14 +21,15 @@ import { SparklesIcon } from "./icons";
 import { MessageActions } from "./message-actions";
 import { MessageReasoning } from "./message-reasoning";
 import { PreviewAttachment } from "./preview-attachment";
+import { ToolActivity } from "./tool-activity";
 import { Weather } from "./weather";
 
 function WaitingText() {
   const { waitingStatus } = useDataStream();
-  const waitingText = waitingStatus?.message ?? "Waiting...";
+  const waitingText = waitingStatus?.message ?? "正在准备…";
 
   return (
-    <div className="flex min-h-[calc(13px*1.65)] min-w-0 items-center text-[13px] leading-[1.65]">
+    <div className="flex min-h-[calc(13px*1.65)] min-w-0 items-center text-[15px] leading-[1.8]">
       <Shimmer
         as="span"
         className="font-medium whitespace-normal break-words"
@@ -50,7 +52,7 @@ function ToolApprovalActions({
     addToolApprovalResponse({
       approved: false,
       id: approvalId,
-      reason: "User denied weather lookup",
+      reason: "用户拒绝执行",
     });
   }, [addToolApprovalResponse, approvalId]);
 
@@ -68,14 +70,14 @@ function ToolApprovalActions({
         onClick={handleDeny}
         type="button"
       >
-        Deny
+        拒绝
       </button>
       <button
         className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground text-sm transition-colors hover:bg-primary/90"
         onClick={handleAllow}
         type="button"
       >
-        Allow
+        允许执行
       </button>
     </div>
   );
@@ -92,6 +94,7 @@ const PurePreviewMessage = ({
   isReadonly,
   requiresScrollPadding: _requiresScrollPadding,
   onEdit,
+  onRegenerate,
 }: {
   addToolApprovalResponse: UseChatHelpers<ChatMessage>["addToolApprovalResponse"];
   chatId: string;
@@ -103,6 +106,7 @@ const PurePreviewMessage = ({
   isReadonly: boolean;
   requiresScrollPadding: boolean;
   onEdit?: (message: ChatMessage) => void;
+  onRegenerate?: () => void;
 }) => {
   const attachmentsFromMessage = message.parts.filter(
     (part) => part.type === "file"
@@ -119,7 +123,9 @@ const PurePreviewMessage = ({
       (part.type === "reasoning" &&
         "text" in part &&
         part.text?.trim().length > 0) ||
-      part.type.startsWith("tool-")
+      part.type.startsWith("tool-") ||
+      part.type === "dynamic-tool" ||
+      part.type === "source-url"
   );
   const isThinking = isAssistant && isLoading && !hasAnyContent;
 
@@ -176,8 +182,8 @@ const PurePreviewMessage = ({
     if (type === "text") {
       return (
         <MessageContent
-          className={cn("text-[13px] leading-[1.65]", {
-            "w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 shadow-[var(--shadow-card)]":
+          className={cn("text-[15px] leading-[1.8]", {
+            "w-fit max-w-[min(85%,60ch)] overflow-hidden break-words rounded-[22px] bg-secondary px-5 py-3":
               message.role === "user",
           })}
           data-testid="message-content"
@@ -338,6 +344,42 @@ const PurePreviewMessage = ({
       );
     }
 
+    if (type === "source-url") {
+      try {
+        const url = new URL(part.url);
+        if (
+          !["http:", "https:"].includes(url.protocol) ||
+          url.username ||
+          url.password
+        ) {
+          return null;
+        }
+        return (
+          <a
+            className="w-fit rounded-full border px-3 py-1.5 text-xs text-muted-foreground hover:bg-secondary"
+            href={url.href}
+            key={key}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {part.title ?? url.hostname}
+          </a>
+        );
+      } catch {
+        return null;
+      }
+    }
+    if (type === "dynamic-tool" || type.startsWith("tool-")) {
+      return (
+        <ToolActivity
+          approve={addToolApprovalResponse}
+          isReadonly={isReadonly}
+          isRunning={isLoading}
+          key={key}
+          part={part as unknown as ToolPart}
+        />
+      );
+    }
     return null;
   });
 
@@ -348,6 +390,7 @@ const PurePreviewMessage = ({
       key={`action-${message.id}`}
       message={message}
       onEdit={onEdit ? () => onEdit(message) : undefined}
+      onRegenerate={onRegenerate}
       vote={vote}
     />
   );
@@ -376,13 +419,6 @@ const PurePreviewMessage = ({
           isUser ? "flex flex-col items-end gap-2" : "flex items-start gap-3"
         )}
       >
-        {isAssistant && (
-          <div className="flex h-[calc(13px*1.65)] shrink-0 items-center">
-            <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground ring-1 ring-border/50">
-              <SparklesIcon size={13} />
-            </div>
-          </div>
-        )}
         {isAssistant ? (
           <div className="flex min-w-0 flex-1 flex-col gap-2">{content}</div>
         ) : (

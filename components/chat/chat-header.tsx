@@ -1,76 +1,81 @@
+// biome-ignore-all lint/performance/noJsxPropsBind: React Compiler memoizes the workspace toggle.
 "use client";
-
-import { PanelLeftIcon } from "lucide-react";
-import Link from "next/link";
-import { memo } from "react";
+import { PanelLeft, PanelRight, PenSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
-import { VercelIcon } from "./icons";
-import { VisibilitySelector, type VisibilityType } from "./visibility-selector";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useActiveChat } from "@/hooks/use-active-chat";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { ChatMenu } from "./chat-menu";
+import { ModelSelectorCompact } from "./multimodal-input";
+import type { VisibilityType } from "./visibility-selector";
 
-function PureChatHeader({
+export function ChatHeader({
   chatId,
-  selectedVisibilityType,
-  isReadonly,
+  selectedVisibilityType: _selectedVisibilityType,
+  isReadonly: _isReadonly,
 }: {
   chatId: string;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
 }) {
   const { state, toggleSidebar, isMobile } = useSidebar();
-
-  if (state === "collapsed" && !isMobile) {
-    return null;
-  }
-
+  const workspace = useWorkspace();
+  const { currentModelId, setCurrentModelId, startNewChat, messages } =
+    useActiveChat();
   return (
-    <header className="sticky top-0 flex h-14 items-center gap-2 bg-sidebar px-3">
-      <Button
-        className="md:hidden"
-        onClick={toggleSidebar}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <PanelLeftIcon className="size-4" />
-      </Button>
-
-      <Link
-        className="flex size-8 items-center justify-center rounded-lg md:hidden"
-        href="https://vercel.com/templates/next.js/chatbot"
-        rel="noopener noreferrer"
-        target="_blank"
-      >
-        <VercelIcon size={14} />
-      </Link>
-
-      {!isReadonly && (
-        <VisibilitySelector
-          chatId={chatId}
-          selectedVisibilityType={selectedVisibilityType}
-        />
-      )}
-
-      <Button
-        asChild
-        className="hidden rounded-lg bg-foreground px-4 text-background hover:bg-foreground/90 md:ml-auto md:flex"
-      >
-        <Link
-          href="https://vercel.com/templates/next.js/chatbot"
-          rel="noopener noreferrer"
-          target="_blank"
+    <header className="flex h-14 shrink-0 items-center gap-2 bg-background px-4 sm:px-6">
+      {(state === "collapsed" || isMobile) && (
+        <Button
+          aria-label="打开侧栏"
+          onClick={toggleSidebar}
+          size="icon"
+          variant="ghost"
         >
-          <VercelIcon size={16} />
-          Deploy with Vercel
-        </Link>
-      </Button>
+          <PanelLeft className="size-5" />
+        </Button>
+      )}
+      <div className="min-w-0">
+        <ModelSelectorCompact
+          onModelChange={setCurrentModelId}
+          selectedModelId={currentModelId}
+        />
+      </div>
+      <div className="ml-auto flex items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-expanded={workspace.open}
+              aria-label={workspace.open ? "隐藏工作区" : "打开工作区"}
+              className="size-9 rounded-full"
+              onClick={() =>
+                workspace.open ? workspace.close() : workspace.show()
+              }
+              size="icon"
+              variant="ghost"
+            >
+              <PanelRight className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {workspace.open ? "隐藏工作区" : "打开工作区"}
+          </TooltipContent>
+        </Tooltip>
+        {messages.length > 0 && <ChatMenu key={chatId} />}
+        <Button
+          aria-label="新对话"
+          className="md:hidden"
+          onClick={startNewChat}
+          size="icon"
+          variant="ghost"
+        >
+          <PenSquare className="size-4" />
+        </Button>
+      </div>
     </header>
   );
 }
-
-export const ChatHeader = memo(
-  PureChatHeader,
-  (prevProps, nextProps) =>
-    prevProps.chatId === nextProps.chatId &&
-    prevProps.selectedVisibilityType === nextProps.selectedVisibilityType &&
-    prevProps.isReadonly === nextProps.isReadonly
-);

@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
 import { deleteAllChatsByUserId, getChatsByUserId } from "@/lib/db/queries";
 import { ChatbotError } from "@/lib/errors";
@@ -6,12 +7,20 @@ import { ChatbotError } from "@/lib/errors";
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
-  const limit = Math.min(
-    Math.max(Number.parseInt(searchParams.get("limit") || "10", 10), 1),
-    50
-  );
-  const startingAfter = searchParams.get("starting_after");
-  const endingBefore = searchParams.get("ending_before");
+  const parsed = z
+    .object({
+      ending_before: z.uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(50).default(20),
+      search: z.string().trim().max(100).default(""),
+      starting_after: z.uuid().optional(),
+    })
+    .safeParse(Object.fromEntries(searchParams));
+  if (!parsed.success) {
+    return new ChatbotError("bad_request:api").toResponse();
+  }
+  const { limit, search } = parsed.data;
+  const startingAfter = parsed.data.starting_after ?? null;
+  const endingBefore = parsed.data.ending_before ?? null;
 
   if (startingAfter && endingBefore) {
     return new ChatbotError(
@@ -30,10 +39,13 @@ export async function GET(request: NextRequest) {
     endingBefore,
     id: session.user.id,
     limit,
+    search,
     startingAfter,
   });
 
-  return Response.json(chats);
+  return Response.json(chats, {
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }
 
 export async function DELETE() {

@@ -8,10 +8,10 @@ const FileSchema = z.object({
   file: z
     .instanceof(Blob)
     .refine((file) => file.size <= 5 * 1024 * 1024, {
-      message: "File size should be less than 5MB",
+      message: "每张图片不能超过 5 MB",
     })
     .refine((file) => ["image/jpeg", "image/png"].includes(file.type), {
-      message: "File type should be JPEG or PNG",
+      message: "仅支持 JPEG 或 PNG 图片",
     }),
 });
 
@@ -19,7 +19,13 @@ export async function POST(request: Request) {
   const session = await auth();
 
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "请登录后再上传图片" }, { status: 401 });
+  }
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json(
+      { error: "图片上传尚未配置，请在设置中查看存储连接说明" },
+      { status: 503 }
+    );
   }
 
   if (request.body === null) {
@@ -55,7 +61,10 @@ export async function POST(request: Request) {
 
       return NextResponse.json(data);
     } catch {
-      return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+      return NextResponse.json(
+        { error: "图片上传失败，请稍后重试" },
+        { status: 500 }
+      );
     }
   } catch {
     return NextResponse.json(

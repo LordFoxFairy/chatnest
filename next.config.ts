@@ -47,8 +47,18 @@ const nextConfig: NextConfig = {
     },
     incomingRequests: false,
   },
+  outputFileTracingIncludes: {
+    "/api/agent": ["./config/agent.json", "./skills/**/*"],
+    "/api/chat": ["./config/agent.json", "./skills/**/*"],
+  },
   poweredByHeader: false,
   reactCompiler: true,
+  serverExternalPackages: [
+    "@playwright/mcp",
+    "playwright",
+    "playwright-core",
+    "@modelcontextprotocol/sdk",
+  ],
 };
 
 export default withBotId(nextConfig);

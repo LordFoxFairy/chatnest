@@ -1,179 +1,110 @@
 "use client";
-
-import {
-  MessageSquareIcon,
-  PanelLeftIcon,
-  PenSquareIcon,
-  TrashIcon,
-} from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { ListPlus, MessageSquare, PanelLeft, PenSquare } from "lucide-react";
 import type { User } from "next-auth";
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
-import { useSWRConfig } from "swr";
-import { unstable_serialize } from "swr/infinite";
-import {
-  getChatHistoryPaginationKey,
-  SidebarHistory,
-} from "@/components/chat/sidebar-history";
-import { SidebarUserNav } from "@/components/chat/sidebar-user-nav";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { useActiveChat } from "@/hooks/use-active-chat";
+import { AgentLibrary } from "./agent-library";
+import { ChatSearch } from "./chat-search";
+import { SidebarHistory } from "./sidebar-history";
+import { SidebarUserNav } from "./sidebar-user-nav";
+import { TaskDialog } from "./task-dialog";
 
 export function AppSidebar({ user }: { user: User | undefined }) {
-  const router = useRouter();
-  const { setOpenMobile, toggleSidebar } = useSidebar();
-  const { mutate } = useSWRConfig();
-  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
-
-  const closeMobile = useCallback(() => {
+  const { toggleSidebar, setOpenMobile } = useSidebar();
+  const { startNewChat } = useActiveChat();
+  const [taskOpen, setTaskOpen] = useState(false);
+  const handleTask = useCallback(() => setTaskOpen(true), []);
+  const handleStarted = useCallback(
+    () => setOpenMobile(false),
+    [setOpenMobile]
+  );
+  const handleNew = useCallback(() => {
     setOpenMobile(false);
-  }, [setOpenMobile]);
-
-  const handleToggleSidebar = useCallback(() => {
-    toggleSidebar();
-  }, [toggleSidebar]);
-
-  const handleNewChat = useCallback(() => {
-    setOpenMobile(false);
-    router.push("/");
-  }, [router, setOpenMobile]);
-
-  const handleShowDeleteAllDialog = useCallback(() => {
-    setShowDeleteAllDialog(true);
-  }, []);
-
-  const handleDeleteAll = useCallback(() => {
-    setShowDeleteAllDialog(false);
-    router.replace("/");
-    mutate(unstable_serialize(getChatHistoryPaginationKey), [], {
-      revalidate: false,
-    });
-
-    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/history`, {
-      method: "DELETE",
-    });
-
-    toast.success("All chats deleted");
-  }, [mutate, router]);
-
+    startNewChat();
+  }, [setOpenMobile, startNewChat]);
   return (
     <>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="pb-0 pt-3">
+      <Sidebar className="border-r-0" collapsible="offcanvas">
+        <SidebarHeader className="px-3 pt-5 pb-3">
+          <div className="mb-5 flex items-center justify-between px-1">
+            <button
+              aria-label="Research 首页"
+              className="flex items-center gap-2 text-sm font-semibold"
+              onClick={handleNew}
+              type="button"
+            >
+              <span className="flex size-8 items-center justify-center rounded-full bg-foreground text-background">
+                <MessageSquare className="size-4" />
+              </span>
+              Research
+            </button>
+            <button
+              aria-label="收起侧栏"
+              className="rounded-lg p-2 text-muted-foreground hover:bg-sidebar-accent"
+              onClick={toggleSidebar}
+              type="button"
+            >
+              <PanelLeft className="size-[18px]" />
+            </button>
+          </div>
           <SidebarMenu>
-            <SidebarMenuItem className="flex flex-row items-center justify-between">
-              <div className="group/logo relative flex items-center justify-center">
-                <SidebarMenuButton
-                  asChild
-                  className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:group-hover/logo:opacity-0"
-                  tooltip="Chatbot"
-                >
-                  <Link href="/" onClick={closeMobile}>
-                    <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
-                  </Link>
-                </SidebarMenuButton>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <SidebarMenuButton
-                      className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:group-hover/logo:opacity-100"
-                      onClick={handleToggleSidebar}
-                    >
-                      <PanelLeftIcon className="size-4" />
-                    </SidebarMenuButton>
-                  </TooltipTrigger>
-                  <TooltipContent className="hidden md:block" side="right">
-                    Open sidebar
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="group-data-[collapsible=icon]:hidden">
-                <SidebarTrigger className="text-sidebar-foreground/60 transition-colors duration-150 hover:text-sidebar-foreground" />
-              </div>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="h-10 gap-3 rounded-lg px-2.5 text-sm"
+                onClick={handleNew}
+              >
+                <PenSquare className="size-[18px]" />
+                <span>新对话</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  ⌘ ⇧ O
+                </span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="h-10 gap-3 rounded-lg px-2.5 text-sm"
+                onClick={handleTask}
+              >
+                <ListPlus className="size-[18px]" />
+                <span>创建任务</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <ChatSearch />
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup className="pt-1">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    onClick={handleNewChat}
-                    tooltip="New Chat"
-                  >
-                    <PenSquareIcon className="size-4" />
-                    <span className="font-medium">New chat</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {user ? (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      className="rounded-lg text-sidebar-foreground/40 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
-                      onClick={handleShowDeleteAllDialog}
-                      tooltip="Delete All Chats"
-                    >
-                      <TrashIcon className="size-4" />
-                      <span className="text-[13px]">Delete all</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ) : null}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+        <SidebarContent className="gap-4">
           <SidebarHistory user={user} />
         </SidebarContent>
-        <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3">
-          {user ? <SidebarUserNav user={user} /> : null}
+        <SidebarFooter className="gap-2 px-3 pb-4">
+          {user ? (
+            <SidebarUserNav user={user} />
+          ) : (
+            <p className="px-2 py-2 text-xs text-muted-foreground">
+              <AgentLibrary tab="settings" />
+              登录后保存对话
+            </p>
+          )}
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
-
-      <AlertDialog
-        onOpenChange={setShowDeleteAllDialog}
-        open={showDeleteAllDialog}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete all chats?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete all
-              your chats and remove them from our servers.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteAll}>
-              Delete All
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <TaskDialog
+        onOpenChange={setTaskOpen}
+        onStarted={handleStarted}
+        open={taskOpen}
+      />
     </>
   );
 }

@@ -25,9 +25,15 @@ export async function submitEditedMessage({
 
     return [
       ...messages.slice(0, index),
-      { ...message, parts: [{ text, type: "text" as const }] },
+      {
+        ...message,
+        parts: [
+          ...message.parts.filter((part) => part.type === "file"),
+          { text, type: "text" as const },
+        ],
+      },
     ];
   });
 
-  regenerate();
+  await regenerate({ body: { trigger: "submit-message" } });
 }

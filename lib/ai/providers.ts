@@ -1,5 +1,7 @@
+import { createOpenAI } from "@ai-sdk/openai";
 import { customProvider, gateway } from "ai";
 import { isTestEnvironment } from "../constants";
+import { getModelConnection } from "./model-connection";
 import { titleModel } from "./models";
 
 export const myProvider = isTestEnvironment
@@ -22,6 +24,16 @@ export function getLanguageModel(modelId: string) {
     return myProvider.languageModel(modelId);
   }
 
+  const connection = getModelConnection();
+  if (connection.provider === "openai") {
+    const provider = createOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: connection.baseURL,
+    });
+    return connection.apiMode === "responses"
+      ? provider.responses(connection.modelId)
+      : provider.chat(connection.modelId);
+  }
   return gateway.languageModel(modelId);
 }
 
@@ -29,5 +41,5 @@ export function getTitleModel() {
   if (isTestEnvironment && myProvider) {
     return myProvider.languageModel("title-model");
   }
-  return gateway.languageModel(titleModel.id);
+  return getLanguageModel(titleModel.id);
 }

@@ -8,6 +8,7 @@ export type ErrorType =
 
 export type Surface =
   | "chat"
+  | "configuration"
   | "auth"
   | "api"
   | "stream"
@@ -27,6 +28,7 @@ export const visibilityBySurface: Record<Surface, ErrorVisibility> = {
   api: "response",
   auth: "response",
   chat: "response",
+  configuration: "response",
   database: "log",
   document: "response",
   history: "response",
@@ -106,6 +108,8 @@ export function getMessageByErrorCode(errorCode: ErrorCode): string {
       return "You need to sign in to view this chat. Please sign in and try again.";
     case "offline:chat":
       return "We're having trouble sending your message. Please check your internet connection and try again.";
+    case "offline:configuration":
+      return "尚未配置模型密钥。直连 OpenAI / 兼容服务：在 .env.local 设置 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_MODEL 后重启；仅使用 Vercel 网关时才填写 AI_GATEWAY_API_KEY。";
 
     case "not_found:document":
       return "The requested document was not found. Please check the document ID and try again.";

@@ -8,6 +8,7 @@ import {
   eq,
   gt,
   gte,
+  ilike,
   inArray,
   lt,
   type SQL,
@@ -16,7 +17,9 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { ArtifactKind } from "@/components/chat/artifact";
 import type { VisibilityType } from "@/components/chat/visibility-selector";
+import { prepareRegeneration } from "../agent/message-turn";
 import { ChatbotError } from "../errors";
+import type { ChatMessage } from "../types";
 import { generateUUID } from "../utils";
 import {
   type Chat,
@@ -145,11 +148,13 @@ export async function getChatsByUserId({
   limit,
   startingAfter,
   endingBefore,
+  search = "",
 }: {
   id: string;
   limit: number;
   startingAfter: string | null;
   endingBefore: string | null;
+  search?: string;
 }) {
   try {
     const extendedLimit = limit + 1;
@@ -159,9 +164,13 @@ export async function getChatsByUserId({
         .select()
         .from(chat)
         .where(
-          whereCondition
-            ? and(whereCondition, eq(chat.userId, id))
-            : eq(chat.userId, id)
+          and(
+            eq(chat.userId, id),
+            whereCondition,
+            search
+              ? ilike(chat.title, `%${search.replace(/[\\%_]/g, "\\$&")}%`)
+              : undefined
+          )
         )
         .orderBy(desc(chat.createdAt))
         .limit(extendedLimit);
@@ -172,7 +181,7 @@ export async function getChatsByUserId({
       const [selectedChat] = await db
         .select()
         .from(chat)
-        .where(eq(chat.id, startingAfter))
+        .where(and(eq(chat.id, startingAfter), eq(chat.userId, id)))
         .limit(1);
 
       if (!selectedChat) {
@@ -187,7 +196,7 @@ export async function getChatsByUserId({
       const [selectedChat] = await db
         .select()
         .from(chat)
-        .where(eq(chat.id, endingBefore))
+        .where(and(eq(chat.id, endingBefore), eq(chat.userId, id)))
         .limit(1);
 
       if (!selectedChat) {
@@ -230,12 +239,81 @@ export async function getChatById({ id }: { id: string }) {
 
 export async function saveMessages({ messages }: { messages: DBMessage[] }) {
   try {
-    return await db.insert(message).values(messages);
+    return await db.transaction(async (tx) => {
+      // Cooperate with regeneration: append and replace serialize per chat.
+      await tx
+        .select({ id: chat.id })
+        .from(chat)
+        .where(
+          inArray(chat.id, [...new Set(messages.map((item) => item.chatId))])
+        )
+        .orderBy(asc(chat.id))
+        .for("update");
+      return await tx.insert(message).values(messages);
+    });
   } catch (error) {
     throw new ChatbotError("bad_request:database", {
       cause: error,
     });
   }
+}
+
+export async function replaceRegeneratedAnswer({
+  chatId,
+  userId,
+  snapshot,
+  answer,
+}: {
+  chatId: string;
+  userId: string;
+  snapshot: DBMessage[];
+  answer: DBMessage;
+}) {
+  await db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select()
+      .from(chat)
+      .where(eq(chat.id, chatId))
+      .for("update");
+    if (!owner || owner.userId !== userId) {
+      throw new ChatbotError("forbidden:chat");
+    }
+    const current = await tx
+      .select()
+      .from(message)
+      .where(eq(message.chatId, chatId))
+      .orderBy(asc(message.createdAt));
+    const unchanged =
+      current.length === snapshot.length &&
+      current.every(
+        (item, index) =>
+          item.id === snapshot[index].id &&
+          item.role === snapshot[index].role &&
+          JSON.stringify(item.parts) === JSON.stringify(snapshot[index].parts)
+      );
+    const prepared = prepareRegeneration(
+      current as ChatMessage[],
+      current.at(-2)?.id ?? ""
+    );
+    if (
+      !unchanged ||
+      !prepared ||
+      answer.chatId !== chatId ||
+      answer.role !== "assistant" ||
+      answer.id !== prepared.answerId ||
+      !Array.isArray(answer.parts) ||
+      !answer.parts.length
+    ) {
+      throw new ChatbotError("bad_request:api");
+    }
+    await tx
+      .delete(vote)
+      .where(and(eq(vote.chatId, chatId), eq(vote.messageId, answer.id)));
+    await tx
+      .update(message)
+      .set({ attachments: answer.attachments, parts: answer.parts })
+      .where(and(eq(message.chatId, chatId), eq(message.id, answer.id)));
+  });
 }
 
 export async function updateMessage({
@@ -508,7 +586,12 @@ export async function updateChatVisibilityById({
   visibility: "private" | "public";
 }) {
   try {
-    return await db.update(chat).set({ visibility }).where(eq(chat.id, chatId));
+    const updated = await db
+      .update(chat)
+      .set({ visibility })
+      .where(eq(chat.id, chatId))
+      .returning({ id: chat.id });
+    return updated.length === 1;
   } catch (error) {
     throw new ChatbotError("bad_request:database", { cause: error });
   }
@@ -522,9 +605,15 @@ export async function updateChatTitleById({
   title: string;
 }) {
   try {
-    return await db.update(chat).set({ title }).where(eq(chat.id, chatId));
+    const updated = await db
+      .update(chat)
+      .set({ title })
+      .where(eq(chat.id, chatId))
+      .returning({ id: chat.id });
+    return updated.length === 1;
   } catch {
     // Best effort title update.
+    return false;
   }
 }
 

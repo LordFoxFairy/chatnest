@@ -57,7 +57,7 @@ export function DocumentPreview({
   );
 
   const previewDocument = useMemo(() => documents?.[0], [documents]);
-  const hitboxRef = useRef<HTMLDivElement>(null);
+  const hitboxRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const boundingBox = hitboxRef.current?.getBoundingClientRect();
@@ -159,7 +159,7 @@ const PureHitboxLayer = ({
   result,
   setArtifact,
 }: {
-  hitboxRef: React.RefObject<HTMLDivElement>;
+  hitboxRef: React.RefObject<HTMLButtonElement>;
   result?: Partial<DocumentToolOutput>;
   setArtifact: (
     updaterFn: UIArtifact | ((currentArtifact: UIArtifact) => UIArtifact)
@@ -187,19 +187,20 @@ const PureHitboxLayer = ({
   );
 
   return (
-    <div
-      aria-hidden="true"
+    <button
+      aria-label={`打开文档：${result?.title ?? "文档"}`}
       className="absolute top-0 left-0 z-10 size-full rounded-xl"
+      data-testid="document-preview"
       onClick={handleClick}
       ref={hitboxRef}
-      role="presentation"
+      type="button"
     >
       <div className="flex w-full items-center justify-end p-4">
         <div className="absolute top-[13px] right-[9px] rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
           <FullscreenIcon />
         </div>
       </div>
-    </div>
+    </button>
   );
 };
 

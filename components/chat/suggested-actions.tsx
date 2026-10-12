@@ -1,82 +1,50 @@
 "use client";
-
-import type { UseChatHelpers } from "@ai-sdk/react";
-import { motion } from "framer-motion";
-import { memo, useCallback } from "react";
-import { suggestions } from "@/lib/constants";
-import type { ChatMessage } from "@/lib/types";
-import { Suggestion } from "../ai-elements/suggestion";
-import type { VisibilityType } from "./visibility-selector";
-
-type SuggestedActionsProps = {
-  chatId: string;
-  sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
-  selectedVisibilityType: VisibilityType;
-};
-
-function PureSuggestedActions({ chatId, sendMessage }: SuggestedActionsProps) {
-  const suggestedActions = suggestions;
-  const handleSuggestionClick = useCallback(
-    (suggestion: string) => {
-      window.history.pushState(
-        {},
-        "",
-        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/chat/${chatId}`
-      );
-      sendMessage({
-        parts: [{ text: suggestion, type: "text" }],
-        role: "user",
-      });
+import { FileSearch, ScanText, Search } from "lucide-react";
+import { type MouseEvent, useCallback } from "react";
+export function SuggestedActions({
+  onSelect,
+}: {
+  onSelect: (text: string) => void;
+}) {
+  const suggestions = [
+    {
+      icon: Search,
+      label: "查找传播线索",
+      text: "帮我调查一个知识产品的网上传播线索。目标是：",
     },
-    [chatId, sendMessage]
+    {
+      icon: ScanText,
+      label: "对照可疑内容",
+      text: "帮我对照原作品与可疑内容，区分相似表达、共同知识和仍需核实的部分。原文与候选内容如下：",
+    },
+    {
+      icon: FileSearch,
+      label: "整理来源报告",
+      text: "把以下线索整理成可复核的报告，保留真实来源、对应片段和未核实事项：",
+    },
+  ];
+  const handleSelect = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) =>
+      onSelect(event.currentTarget.dataset.prompt ?? ""),
+    [onSelect]
   );
-
   return (
     <div
-      className="flex w-full gap-2.5 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:overflow-visible"
+      className="flex flex-wrap justify-center gap-2 pt-1"
       data-testid="suggested-actions"
-      style={{
-        msOverflowStyle: "none",
-        scrollbarWidth: "none",
-        WebkitOverflowScrolling: "touch",
-      }}
     >
-      {suggestedActions.map((suggestedAction, index) => (
-        <motion.div
-          animate={{ opacity: 1, y: 0 }}
-          className="min-w-[200px] shrink-0 sm:min-w-0 sm:shrink"
-          exit={{ opacity: 0, y: 16 }}
-          initial={{ opacity: 0, y: 16 }}
-          key={suggestedAction}
-          transition={{
-            delay: 0.06 * index,
-            duration: 0.4,
-            ease: [0.22, 1, 0.36, 1],
-          }}
+      {suggestions.map(({ label, icon: Icon, text }) => (
+        <button
+          className="flex items-center gap-2 rounded-full border border-border/70 px-3.5 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          data-prompt={text}
+          key={label}
+          onClick={handleSelect}
+          type="button"
         >
-          <Suggestion
-            className="h-auto w-full whitespace-nowrap rounded-xl border border-border/50 bg-card/30 px-4 py-3 text-left text-[12px] leading-relaxed text-muted-foreground transition-all duration-200 sm:whitespace-normal sm:p-4 sm:text-[13px] hover:-translate-y-0.5 hover:bg-card/60 hover:text-foreground hover:shadow-[var(--shadow-card)]"
-            onClick={handleSuggestionClick}
-            suggestion={suggestedAction}
-          >
-            {suggestedAction}
-          </Suggestion>
-        </motion.div>
+          <Icon className="size-3.5" />
+          {label}
+        </button>
       ))}
     </div>
   );
 }
-
-export const SuggestedActions = memo(
-  PureSuggestedActions,
-  (prevProps, nextProps) => {
-    if (prevProps.chatId !== nextProps.chatId) {
-      return false;
-    }
-    if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType) {
-      return false;
-    }
-
-    return true;
-  }
-);

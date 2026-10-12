@@ -21,7 +21,6 @@ import { useArtifact } from "@/hooks/use-artifact";
 import type { Document, Vote } from "@/lib/db/schema";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { fetcher } from "@/lib/utils";
-import { useSidebar } from "../ui/sidebar";
 import { ArtifactActions } from "./artifact-actions";
 import { ArtifactCloseButton } from "./artifact-close-button";
 import { LoaderIcon } from "./icons";
@@ -69,6 +68,7 @@ function PureArtifact({
   isReadonly: _isReadonly,
   selectedVisibilityType: _selectedVisibilityType,
   selectedModelId: _selectedModelId,
+  embedded = false,
 }: {
   addToolApprovalResponse: UseChatHelpers<ChatMessage>["addToolApprovalResponse"];
   chatId: string;
@@ -86,6 +86,7 @@ function PureArtifact({
   isReadonly: boolean;
   selectedVisibilityType: VisibilityType;
   selectedModelId: string;
+  embedded?: boolean;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
 
@@ -104,7 +105,6 @@ function PureArtifact({
   const [document, setDocument] = useState<Document | null>(null);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
 
-  const { state: sidebarState } = useSidebar();
   const artifactContentRef = useRef<HTMLDivElement>(null);
   const userScrolledArtifact = useRef(false);
   const [isContentDirty, setIsContentDirty] = useState(false);
@@ -329,44 +329,42 @@ function PureArtifact({
 
   const artifactPanel = (
     <>
-      {sidebarState !== "collapsed" && (
-        <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between border-b border-border/50 px-4">
-          <div className="flex items-center gap-3">
-            <ArtifactCloseButton />
-            <div className="flex flex-col gap-0.5">
-              <div className="text-sm font-semibold leading-tight tracking-tight">
-                {artifact.title}
-              </div>
-              <div className="flex items-center gap-2">
-                {isContentDirty ? (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <div className="size-1.5 animate-pulse rounded-full bg-amber-500" />
-                    Saving...
+      <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between border-b border-border/50 px-4">
+        <div className="flex items-center gap-3">
+          <ArtifactCloseButton />
+          <div className="flex flex-col gap-0.5">
+            <div className="text-sm font-semibold leading-tight tracking-tight">
+              {artifact.title}
+            </div>
+            <div className="flex items-center gap-2">
+              {isContentDirty ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+                  Saving...
+                </div>
+              ) : document ? (
+                <div className="text-xs text-muted-foreground">
+                  {`Updated ${formatDistance(new Date(document.createdAt), new Date(), { addSuffix: true })}`}
+                </div>
+              ) : artifact.status === "streaming" ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="animate-spin">
+                    <LoaderIcon size={12} />
                   </div>
-                ) : document ? (
-                  <div className="text-xs text-muted-foreground">
-                    {`Updated ${formatDistance(new Date(document.createdAt), new Date(), { addSuffix: true })}`}
-                  </div>
-                ) : artifact.status === "streaming" ? (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <div className="animate-spin">
-                      <LoaderIcon size={12} />
-                    </div>
-                    Generating...
-                  </div>
-                ) : (
-                  <div className="h-3 w-24 animate-pulse rounded bg-muted-foreground/10" />
-                )}
-                {documents && documents.length > 1 && (
-                  <div className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-                    v{currentVersionIndex + 1}/{documents.length}
-                  </div>
-                )}
-              </div>
+                  Generating...
+                </div>
+              ) : (
+                <div className="h-3 w-24 animate-pulse rounded bg-muted-foreground/10" />
+              )}
+              {documents && documents.length > 1 && (
+                <div className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+                  v{currentVersionIndex + 1}/{documents.length}
+                </div>
+              )}
             </div>
           </div>
         </div>
-      )}
+      </div>
       <div
         className="relative flex-1 overflow-y-auto bg-background"
         data-slot="artifact-content"
@@ -434,7 +432,7 @@ function PureArtifact({
     </>
   );
 
-  if (isMobile) {
+  if (isMobile && !embedded) {
     return (
       <motion.div
         animate={{
@@ -465,7 +463,11 @@ function PureArtifact({
 
   return (
     <div
-      className="flex h-dvh w-[60%] shrink-0 flex-col overflow-hidden border-l border-border/50 bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+      className={
+        embedded
+          ? "flex h-full w-full min-h-0 flex-col overflow-hidden bg-sidebar"
+          : "flex h-dvh w-[60%] shrink-0 flex-col overflow-hidden border-l border-border/50 bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+      }
       data-testid="artifact"
     >
       {artifactPanel}

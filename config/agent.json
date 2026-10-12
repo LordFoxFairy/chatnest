@@ -1,0 +1,34 @@
+{
+  "maxSteps": 12,
+  "timeoutMs": 240000,
+  "toolTimeoutMs": 30000,
+  "maxOutputTokens": 8000,
+  "servers": [
+    {
+      "id": "exa",
+      "name": "Exa 网页搜索",
+      "url": "https://mcp.exa.ai/mcp",
+      "headers": {},
+      "allowedTools": ["web_search_exa", "web_fetch_exa"],
+      "autoApproveTools": ["web_search_exa", "web_fetch_exa"]
+    },
+    {
+      "id": "tavily",
+      "name": "Tavily Search",
+      "url": "https://mcp.tavily.com/mcp/",
+      "headers": { "Authorization": "Bearer ${TAVILY_API_KEY}" },
+      "allowedTools": [
+        "tavily_search",
+        "tavily_extract",
+        "tavily-search",
+        "tavily-extract"
+      ],
+      "autoApproveTools": [
+        "tavily_search",
+        "tavily_extract",
+        "tavily-search",
+        "tavily-extract"
+      ]
+    }
+  ]
+}

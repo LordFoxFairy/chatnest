@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,10 +22,13 @@ import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Artifact } from "./artifact";
 import { ChatHeader } from "./chat-header";
+import { ConversationNotice } from "./conversation-notice";
 import { DataStreamHandler } from "./data-stream-handler";
+import { Greeting } from "./greeting";
 import { submitEditedMessage } from "./message-editor";
 import { Messages } from "./messages";
 import { MultimodalInput } from "./multimodal-input";
+import { Workspace } from "./workspace";
 
 export function ChatShell() {
   const {
@@ -35,6 +39,7 @@ export function ChatShell() {
     status,
     stop,
     regenerate,
+    regenerateAnswer,
     addToolApprovalResponse,
     input,
     setInput,
@@ -46,17 +51,19 @@ export function ChatShell() {
     setCurrentModelId,
     showCreditCardAlert,
     setShowCreditCardAlert,
+    clearError,
+    loadError,
   } = useActiveChat();
 
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
     null
   );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const isEmpty = messages.length === 0 && !isLoading && !loadError;
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const { setArtifact } = useArtifact();
 
   const stopRef = useRef(stop);
-  stopRef.current = stop;
 
   const prevChatIdRef = useRef(chatId);
   useEffect(() => {
@@ -67,7 +74,8 @@ export function ChatShell() {
       setEditingMessage(null);
       setAttachments([]);
     }
-  }, [chatId, setArtifact]);
+    stopRef.current = stop;
+  }, [chatId, setArtifact, stop]);
 
   const handleEditMessage = useCallback(
     (msg: ChatMessage) => {
@@ -85,6 +93,33 @@ export function ChatShell() {
     setEditingMessage(null);
     setInput("");
   }, [setInput]);
+  const handleRestore = useCallback(() => {
+    const lastUser = messages.findLast((message) => message.role === "user");
+    if (!lastUser) {
+      return;
+    }
+    setInput(
+      lastUser.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+    );
+    setAttachments(
+      lastUser.parts
+        .filter((part) => part.type === "file")
+        .map((part) => ({
+          contentType: part.mediaType,
+          name: part.filename ?? "图片",
+          url: part.url,
+        }))
+    );
+    clearError();
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLTextAreaElement>("[data-testid='multimodal-input']")
+        ?.focus()
+    );
+  }, [messages, setInput, clearError]);
 
   const handleSendEditedMessage = useCallback(async () => {
     if (!editingMessage) {
@@ -92,14 +127,18 @@ export function ChatShell() {
     }
 
     const msg = editingMessage;
-    setEditingMessage(null);
-    await submitEditedMessage({
-      message: msg,
-      regenerate,
-      setMessages,
-      text: input,
-    });
-    setInput("");
+    try {
+      await submitEditedMessage({
+        message: msg,
+        regenerate,
+        setMessages,
+        text: input,
+      });
+      setEditingMessage(null);
+      setInput("");
+    } catch {
+      toast.error("修改没有提交，草稿已保留。请稍后重试，或取消修改。");
+    }
   }, [editingMessage, input, regenerate, setInput, setMessages]);
 
   const handleActivateGateway = useCallback(() => {
@@ -113,35 +152,45 @@ export function ChatShell() {
   return (
     <>
       <div className="flex h-dvh w-full flex-row overflow-hidden">
-        <div
-          className={cn(
-            "flex min-w-0 flex-col bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-            isArtifactVisible ? "w-[40%]" : "w-full"
-          )}
-        >
+        <div className={cn("flex min-w-0 flex-1 flex-col bg-background")}>
           <ChatHeader
             chatId={chatId}
             isReadonly={isReadonly}
             selectedVisibilityType={visibilityType}
           />
 
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:rounded-tl-[12px] md:border-t md:border-l md:border-border/40">
-            <Messages
-              addToolApprovalResponse={addToolApprovalResponse}
-              chatId={chatId}
-              isArtifactVisible={isArtifactVisible}
-              isLoading={isLoading}
-              isReadonly={isReadonly}
-              messages={messages}
-              onEditMessage={handleEditMessage}
-              regenerate={regenerate}
-              selectedModelId={currentModelId}
-              setMessages={setMessages}
-              status={status}
-              votes={votes}
-            />
+          <div
+            className={cn(
+              "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
+              isEmpty && "justify-center pb-24 sm:pb-20"
+            )}
+          >
+            {isEmpty ? <Greeting /> : null}
+            {!isEmpty && (
+              <Messages
+                addToolApprovalResponse={addToolApprovalResponse}
+                chatId={chatId}
+                isArtifactVisible={isArtifactVisible}
+                isLoading={isLoading}
+                isReadonly={isReadonly}
+                messages={messages}
+                onEditMessage={handleEditMessage}
+                onRegenerateAnswer={regenerateAnswer}
+                regenerate={regenerate}
+                selectedModelId={currentModelId}
+                setMessages={setMessages}
+                status={status}
+                votes={votes}
+              />
+            )}
 
-            <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
+            <div
+              className={cn(
+                "z-1 mx-auto flex w-full max-w-[800px] flex-col gap-2 bg-background px-4 sm:px-6",
+                !isEmpty && "sticky bottom-0 pb-10 pt-3"
+              )}
+            >
+              <ConversationNotice onRestore={handleRestore} />
               {!isReadonly && (
                 <MultimodalInput
                   attachments={attachments}
@@ -165,27 +214,33 @@ export function ChatShell() {
                 />
               )}
             </div>
+            <p className="pointer-events-none absolute inset-x-0 bottom-3 px-4 text-center text-[11px] leading-4 text-muted-foreground">
+              AI 的分析可能有误。重要结论请核对原文和来源。
+            </p>
           </div>
         </div>
 
-        <Artifact
-          addToolApprovalResponse={addToolApprovalResponse}
-          attachments={attachments}
-          chatId={chatId}
-          input={input}
-          isReadonly={isReadonly}
-          messages={messages}
-          regenerate={regenerate}
-          selectedModelId={currentModelId}
-          selectedVisibilityType={visibilityType}
-          sendMessage={sendMessage}
-          setAttachments={setAttachments}
-          setInput={setInput}
-          setMessages={setMessages}
-          status={status}
-          stop={stop}
-          votes={votes}
-        />
+        <Workspace>
+          <Artifact
+            addToolApprovalResponse={addToolApprovalResponse}
+            attachments={attachments}
+            chatId={chatId}
+            embedded
+            input={input}
+            isReadonly={isReadonly}
+            messages={messages}
+            regenerate={regenerate}
+            selectedModelId={currentModelId}
+            selectedVisibilityType={visibilityType}
+            sendMessage={sendMessage}
+            setAttachments={setAttachments}
+            setInput={setInput}
+            setMessages={setMessages}
+            status={status}
+            stop={stop}
+            votes={votes}
+          />
+        </Workspace>
       </div>
 
       <DataStreamHandler />

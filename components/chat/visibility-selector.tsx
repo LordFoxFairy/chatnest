@@ -33,16 +33,16 @@ const visibilities: Array<{
   icon: ReactNode;
 }> = [
   {
-    description: "Only you can access this chat",
+    description: "仅你可以访问此对话",
     icon: <LockIcon />,
     id: "private",
-    label: "Private",
+    label: "私密",
   },
   {
-    description: "Anyone with the link can access this chat",
+    description: "任何获得链接的人都可以访问此对话",
     icon: <GlobeIcon />,
     id: "public",
-    label: "Public",
+    label: "公开",
   },
 ];
 
@@ -51,11 +51,13 @@ function VisibilitySelectorItem({
   setVisibilityType,
   visibility,
   visibilityType,
+  saving,
 }: {
   setOpen: Dispatch<SetStateAction<boolean>>;
   setVisibilityType: (visibilityType: VisibilityType) => void;
   visibility: (typeof visibilities)[number];
   visibilityType: VisibilityType;
+  saving: boolean;
 }) {
   const handleSelect = useCallback(() => {
     setVisibilityType(visibility.id);
@@ -67,6 +69,7 @@ function VisibilitySelectorItem({
       className="group/item flex flex-row items-center justify-between gap-4"
       data-active={visibility.id === visibilityType}
       data-testid={`visibility-selector-item-${visibility.id}`}
+      disabled={saving}
       onSelect={handleSelect}
     >
       <div className="flex flex-col items-start gap-1">
@@ -94,7 +97,7 @@ export function VisibilitySelector({
 } & React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
 
-  const { visibilityType, setVisibilityType } = useChatVisibility({
+  const { visibilityType, setVisibilityType, saving } = useChatVisibility({
     chatId,
     initialVisibilityType: selectedVisibilityType,
   });
@@ -129,6 +132,7 @@ export function VisibilitySelector({
         {visibilities.map((visibility) => (
           <VisibilitySelectorItem
             key={visibility.id}
+            saving={saving}
             setOpen={setOpen}
             setVisibilityType={setVisibilityType}
             visibility={visibility}
